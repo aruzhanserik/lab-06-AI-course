@@ -1,54 +1,48 @@
 # JUSTIFICATION — the design of the harness, and why
-<!-- STUDENT: replace -->
-
-Replace this whole template with your own text. Delete the line above (the `STUDENT: replace`
-marker) once you have, and delete these instructions and the guiding questions too. Keep the headings
-that follow. Which dimension each section is graded against is in the README.
-
-Two rules for the whole document:
-
-- **Every claim about a law needs a citation to the instrument and the provision** it rests on,
-  written so a reader can find the text. You identify the instruments yourself, from the primary text.
-  A chat model's statement is not a citation.
-- **Everything you describe must be in the code or in the submitted run.** A control you describe
-  but did not build, or a refusal you state but never triggered, belongs under "what the design still
-  fails to protect against".
-
-The guiding questions are prompts, not a form.
-
 ## 1. What the system may do
 
-(Dimension: Integration of Constraints into the Design.)
+The system may screen an application for one purpose only - `scholarship_screening`- and only when
+the applicant is 18 or older, has given consent to automated processing,the values are real life possible
+(GPA 0-4, exam 0-140, income bracket 1-5, achievements 0-5, age 16-40) and no free-text field
+(name, university, program) contains instructions to the model. The model sees only merit fields which are
+program, age, GPA, exam score, household income bracket, achievements and consent. It never sees
+the name or the university.
 
-- What is the system for, stated narrowly? What decisions may it make on its own, and which may it only
-  inform?
-- For each control you built (input validation, blinding, refusal, log, escalation): which
-  constraint made you build it, and where in the code can a reader find it?
-- Did any constraint change the architecture itself, so that the design would be different without it?
-  Name a decision you made differently because of a constraint, and what you would have done otherwise.
+The machine may decide on its own only when the result is clear which is an score outside the 40-49 band, a
+decision that agrees with its score and not rejection of low-income applicant(bracket 1-2).Everything else goes to a person.
 
 ## 2. What it must refuse
 
-(Dimension: Refusal Boundaries and Enforcement.)
+The system refuses, before any model call, and logs the reason code:
 
-- What does it refuse (purposes, inputs, applicants)? Where is each refusal enforced in code, and
-  where in your submitted run did it fire?
-- For each refusal: **which legitimate case does it also block**, and who bears that cost? Is that cost
-  acceptable, and why?
-- What happens to a refused request: is it recorded, is anyone told, can the person ask for a decision to
-  be made by a human instead?
+| request | reason code | why |
+|---|---|---|
+| any purpose other than scholarship screening (eg. "rank applicants by ethnicity") | `purpose_not_allowed` | data may be processed only for specific, predetermined, legitimate goal |
+| applicant under 18 | `minor` | consent must come from a legal representative which the system can not verify |
+| no consent to automated processing | `no_consent` | automated processing that affects a persons rights requires consent |
+| impossible values | `invalid_input` | a decision on wrong data is not a decision about this person |
+| name / university / program containing instruction words, `{ } < > :`, a line break, or over 80 characters | `suspected_prompt_injection` (mine) | text typed by the applicant must not be able to steer the model |
+
+Tested in the submitted run (Part 4): the bare pipeline screened all six test requests, the harness
+refused 5 of 6 with the codes above and 0 model calls and refused 0 of the 400 clean applicants.
+
+The system also does not decide (it escalates to a person) when: the score is 40-49 (`borderline`),
+the reply cannot be parsed (`unparseable`), the decision contradicts the score
+(`decision_score_mismatch`: shortlist under 40 or reject over 50) or the model rejects a low-income
+applicant (`low_income_reject`).
 
 ## 3. What record it keeps
 
-(Dimension: Accountability Record and Auditability.)
+`decisions.jsonl` has one JSON record per call, including refusals and escalations: record id,
+application id, SHA-256 hash of the exact text the model saw, fields shown and fields withheld, model
+and prompt version, harness settings, raw reply, decision and score, the controls that fired, outcome
+and reason code, whether it went to a person and a timestamp.
 
-- What is the **audit question** your record is designed to answer (for example, "why did this
-  applicant get this outcome, and could someone else reconstruct it without re-running the model?")?
-  State it in one sentence, then show that a record in `decisions.jsonl` answers it.
-- What is in each record, and what is left out on purpose (for example, personal data you chose not to
-  store)? Why that line?
-- How long is the record kept, who may read it, who may change it, and what stops a record being
-  edited after the fact? What does the record not let you reconstruct?
+It stores field names, never field values and hash instead of the text so the log does not
+become second copy of applicants' personal data. With it auditor can later check, without
+re-running the model:what the model was shown, what it answered, which rule changed the outcome, and
+whether a person had to look at the case. In my submitted run the log holds the 400 harness decisions
+and the Part 4 requests,including the five refusals.
 
 ## 4. The legal constraints
 
